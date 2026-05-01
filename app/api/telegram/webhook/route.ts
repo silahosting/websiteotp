@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getBotSettingsByToken, getAllProducts, getAllOrders, getProductById, updateProduct, createOrder } from '@/lib/github-db'
+import { getBotSettingsByToken, getAllProducts, getAllOrders, getProductById, updateProduct, createOrder, getQrisSettings, createPayment, updatePaymentByOrderId, getPaymentByOrderId, updateOrder } from '@/lib/github-db'
+import { createOrkutQrisPayment, checkOrkutPaymentStatus } from '@/lib/orkut'
 import type { Product } from '@/types'
 
 // Telegram API base URL
@@ -600,10 +601,279 @@ async function handleCallbackQuery(
     return
   }
   
-  // Handle payment with QRIS (demo - shows QR code message)
+  // Handle payment with QRIS
   if (data.startsWith('pay_qris_')) {
-    await answerCallbackQuery(botToken, callbackQuery.id, 'Fitur QRIS belum tersedia. Gunakan saldo untuk pembayaran.', true)
+    const productId = data.replace('pay_qris_', '')
+    const product = await getProductById(productId)
+
+    if (!product) {
+      await answerCallbackQuery(botToken, callbackQuery.id, 'Produk tidak ditemukan', true)
+      return
+    }
+
+    const sessionKey = `${chatId}_${messageId}`
+    const session = orderSessions.get(sessionKey) || { productId, quantity: 1, chatId, messageId }
+    const quantity = Math.min(session.quantity, product.stock, product.items?.length || 0)
+
+    if (quantity === 0) {
+      await answerCallbackQuery(botToken, callbackQuery.id, 'Stok habis!', true)
+      return
+    }
+
+    try {
+      const totalPrice = product.price * quantity
+
+      // Create order first
+      const newOrder = await createOrder({
+        productId: product.id,
+        productName: product.name,
+        buyerId: userId,
+        buyerName: user.first_name,
+        quantity,
+        totalPrice,
+        status: 'pending',
+        paymentStatus: 'pending'
+      })
+
+      if (!newOrder) {
+        await answerCallbackQuery(botToken, callbackQuery.id, 'Gagal membuat order', true)
+        return
+      }
+
+      // Try to get user QRIS, fallback to admin QRIS
+      let qrisResult = await createOrkutQrisPayment(totalPrice, `Pembayaran ${product.name}`, 'user', userId)
+      
+      if (!qrisResult.success) {
+        // Fallback to admin QRIS
+        console.log('[v0] User QRIS not found or failed, falling back to admin QRIS')
+        qrisResult = await createOrkutQrisPayment(totalPrice, `Pembayaran ${product.name}`, 'admin')
+      }
+
+      if (!qrisResult.success) {
+        await answerCallbackQuery(botToken, callbackQuery.id, 'Gagal membuat QRIS: ' + qrisResult.error, true)
+        return
+      }
+
+      // Update order with QRIS details
+      await updatePaymentByOrderId(newOrder.id, {
+        status: 'pending',
+        transactionId: qrisResult.transactionId,
+        qrisUrl: qrisResult.qrString,
+      })
+
+      // Create payment record
+      await createPayment({
+        orderId: newOrder.id,
+        userId,
+        amount: qrisResult.amount,
+        qrisUrl: qrisResult.qrString,
+        transactionId: qrisResult.transactionId,
+        status: 'pending',
+        paymentMethod: 'qris',
+      })
+
+      // Clean up session
+      orderSessions.delete(sessionKey)
+
+      await answerCallbackQuery(botToken, callbackQuery.id)
+
+      // Send QRIS payment message with image
+      let qrisText = `💳 *PEMBAYARAN QRIS*\n\n`
+      qrisText += `📦 *Produk:* ${product.name}\n`
+      qrisText += `📊 *Jumlah:* ${quantity}x\n`
+      qrisText += `💰 *Harga:* Rp ${toRupiah(qrisResult.originalAmount)}\n`
+      qrisText += `💸 *Admin Fee:* Rp ${toRupiah(qrisResult.fee)}\n`
+      qrisText += `━━━━━━━━━━━━━━━━━━━━━\n`
+      qrisText += `💵 *Total Bayar:* Rp ${toRupiah(qrisResult.amount)}\n\n`
+      qrisText += `🆔 *ID Transaksi:* \`${qrisResult.transactionId}\`\n\n`
+      qrisText += `📌 *Instruksi Pembayaran:*\n`
+      qrisText += `1. Buka aplikasi e-wallet/banking\n`
+      qrisText += `2. Scan QR Code di bawah\n`
+      qrisText += `3. Ikuti proses pembayaran\n`
+      qrisText += `4. Tunggu konfirmasi (otomatis)\n\n`
+      qrisText += `⏱️ *Berlaku sampai:* ${new Date(qrisResult.expiresAt).toLocaleString('id-ID')}\n\n`
+      qrisText += `_Pembayaran akan diproses secara otomatis setelah berhasil._`
+
+      const keyboard = {
+        inline_keyboard: [
+          [{ text: '✅ Cek Status Pembayaran', callback_data: `check_payment_${newOrder.id}` }],
+          [{ text: '🔄 Refresh', callback_data: `refresh_payment_${newOrder.id}` }],
+          [{ text: '❌ Batal', callback_data: 'menu_main' }]
+        ]
+      }
+
+      // Send QR code image from Orkut API
+      try {
+        await fetch(`${TELEGRAM_API}${botToken}/sendPhoto`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            photo: qrisResult.qrsImageUrl,
+            caption: qrisText,
+            parse_mode: 'Markdown',
+            reply_markup: keyboard,
+          }),
+        })
+      } catch (photoError) {
+        console.log('[v0] Failed to send photo, sending text with QR string:', photoError)
+        await sendMessage(botToken, chatId, qrisText, { replyMarkup: keyboard })
+      }
+
+      return
+    } catch (error) {
+      console.error('[v0] QRIS Payment Error:', error)
+      await answerCallbackQuery(botToken, callbackQuery.id, 'Gagal memproses pembayaran QRIS', true)
+      return
+    }
+  }
+  
+  // Handle check payment status
+  if (data.startsWith('check_payment_')) {
+    const orderId = data.replace('check_payment_', '')
+    
+    try {
+      const orders = await getAllOrders()
+      const order = orders?.find(o => o.id === orderId)
+      
+      if (!order) {
+        await answerCallbackQuery(botToken, callbackQuery.id, 'Order tidak ditemukan', true)
+        return
+      }
+
+      // Get payment transaction ID
+      const payments = await getPaymentByOrderId(orderId)
+      if (!payments) {
+        await answerCallbackQuery(botToken, callbackQuery.id, 'Pembayaran tidak ditemukan', true)
+        return
+      }
+
+      // Check status real-time from Orkut
+      const statusCheck = await checkOrkutPaymentStatus(
+        payments.transactionId,
+        'admin'
+      )
+
+      if (statusCheck.status === 'paid') {
+        // Update order and payment status
+        await updateOrder(orderId, { paymentStatus: 'paid', status: 'processing' })
+        await updatePaymentByOrderId(orderId, { status: 'paid' })
+
+        let statusText = `✅ *PEMBAYARAN BERHASIL*\n\n`
+        statusText += `📦 *Produk:* ${order.productName}\n`
+        statusText += `💰 *Jumlah Bayar:* Rp ${toRupiah(payments.amount)}\n`
+        statusText += `🏦 *Via:* ${statusCheck.brand || 'QRIS'}\n`
+        statusText += `📝 *Ket:* ${statusCheck.description || '-'}\n\n`
+        statusText += `🆔 *ID Transaksi:* \`${statusCheck.transactionId}\`\n`
+        statusText += `⏰ *Waktu:* ${new Date().toLocaleString('id-ID')}\n\n`
+        statusText += `_Pesanan Anda sedang diproses. Terima kasih!_`
+
+        await answerCallbackQuery(botToken, callbackQuery.id, 'Pembayaran terkonfirmasi!', false)
+        await sendMessage(botToken, chatId, statusText)
+      } else if (statusCheck.status === 'pending') {
+        let pendingText = `⏳ *PEMBAYARAN BELUM DIKONFIRMASI*\n\n`
+        pendingText += `🆔 *ID Transaksi:* \`${statusCheck.transactionId}\`\n`
+        pendingText += `📝 *Status:* ${statusCheck.error || 'Menunggu pembayaran'}\n\n`
+        pendingText += `_Silakan coba lagi dalam beberapa detik_`
+
+        await answerCallbackQuery(botToken, callbackQuery.id, 'Masih menunggu pembayaran...', false)
+        await sendMessage(botToken, chatId, pendingText)
+      } else {
+        let failText = `❌ *PEMBAYARAN GAGAL/EXPIRED*\n\n`
+        failText += `🆔 *ID Transaksi:* \`${statusCheck.transactionId}\`\n`
+        failText += `📝 *Alasan:* ${statusCheck.error || 'Pembayaran tidak terdeteksi'}\n\n`
+        failText += `_Silakan coba ulang pembayaran_`
+
+        await answerCallbackQuery(botToken, callbackQuery.id, 'Pembayaran gagal atau expired', true)
+        await sendMessage(botToken, chatId, failText)
+      }
+
+      return
+    } catch (error) {
+      console.error('[v0] Check Payment Error:', error)
+      await answerCallbackQuery(botToken, callbackQuery.id, 'Gagal check status: ' + String(error), true)
+      return
+    }
+  }
+
+  // Handle refresh payment status
+  if (data.startsWith('refresh_payment_')) {
+    const orderId = data.replace('refresh_payment_', '')
+    await editMessageReplyMarkup(botToken, chatId, messageId, {
+      inline_keyboard: [
+        [{ text: '⏳ Mengecek...', callback_data: 'noop' }]
+      ]
+    })
+    
+    // Trigger check status again
+    await fetch(`${TELEGRAM_API}${botToken}/answerCallbackQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        callback_query_id: callbackQuery.id,
+        text: 'Mengecek status pembayaran...',
+        show_alert: false,
+      }),
+    })
+
+    // Simulate a check_payment call
+    const checkData = `check_payment_${orderId}`
+    // Re-process as check_payment
+    Object.assign(data, checkData)
     return
+  }
+      }
+
+      // Try to send QR code image if available
+      if (qrisResult.qrisCode || qrisResult.qrisUrl) {
+        try {
+          await fetch(`${TELEGRAM_API}${botToken}/sendPhoto`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              photo: qrisResult.qrisCode || qrisResult.qrisUrl,
+              caption: qrisText,
+              parse_mode: 'Markdown',
+              reply_markup: keyboard,
+            }),
+          })
+        } catch (photoError) {
+          console.log('[v0] Failed to send photo, sending text instead:', photoError)
+          await sendMessage(botToken, chatId, qrisText, { replyMarkup: keyboard })
+        }
+      } else {
+        await sendMessage(botToken, chatId, qrisText, { replyMarkup: keyboard })
+      }
+
+      return
+    } catch (error) {
+      console.error('[v0] QRIS Payment Error:', error)
+      await answerCallbackQuery(botToken, callbackQuery.id, 'Gagal memproses pembayaran QRIS', true)
+      return
+    }
+  }
+  
+  // Handle check payment status
+  if (data.startsWith('check_payment_')) {
+    const orderId = data.replace('check_payment_', '')
+    
+    try {
+      const orders = await getAllOrders()
+      const order = orders?.find(o => o.id === orderId)
+      
+      if (!order) {
+        await answerCallbackQuery(botToken, callbackQuery.id, 'Order tidak ditemukan', true)
+        return
+      }
+
+      await answerCallbackQuery(botToken, callbackQuery.id, 'Status: ' + (order.paymentStatus || 'pending'))
+      return
+    } catch (error) {
+      console.error('[v0] Check Payment Error:', error)
+      await answerCallbackQuery(botToken, callbackQuery.id, 'Gagal check status', true)
+      return
+    }
   }
   
   // Handle balance check
