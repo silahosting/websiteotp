@@ -55,7 +55,7 @@ export async function createOrkutQrisPayment(
 <<<<<<< HEAD
     let merchant_Id = ORKUT_ADMIN_MERCHANT_ID
 =======
-    let merchantId = ORKUT_ADMIN_MERCHANT_ID
+    let merchant_Id = ORKUT_ADMIN_MERCHANT_ID
 >>>>>>> 4eaf8f9 (update file)
     let codeQr = ORKUT_ADMIN_CODE_QR
 
@@ -69,7 +69,7 @@ export async function createOrkutQrisPayment(
 <<<<<<< HEAD
         merchant_Id = qrisSettings.username // atau bisa dari field lain
 =======
-        merchantId = qrisSettings.username // atau bisa dari field lain
+        merchant_Id = qrisSettings.username // atau bisa dari field lain
 >>>>>>> 4eaf8f9 (update file)
         codeQr = qrisSettings.apiKey // Asumsi code QR disimpan di field apiKey untuk user
       }
@@ -102,7 +102,7 @@ export async function createOrkutQrisPayment(
 <<<<<<< HEAD
       merchant_Id: merchant_Id,
 =======
-      merchantid: merchantId,
+      merchant_Id: merchant_Id,
 >>>>>>> 4eaf8f9 (update file)
     })
 
@@ -176,7 +176,7 @@ export async function checkOrkutPaymentStatus(
 <<<<<<< HEAD
     let merchant_Id = ORKUT_ADMIN_MERCHANT_ID
 =======
-    let merchantId = ORKUT_ADMIN_MERCHANT_ID
+    let merchant_Id = ORKUT_ADMIN_MERCHANT_ID
 >>>>>>> 4eaf8f9 (update file)
 
     if (qrisType === 'user' && userId) {
@@ -205,7 +205,7 @@ export async function checkOrkutPaymentStatus(
 <<<<<<< HEAD
       merchant_Id: merchant_Id,
 =======
-      merchantid: merchantId,
+      merchant_Id: merchant_Id,
 >>>>>>> 4eaf8f9 (update file)
       transactionId,
     })
