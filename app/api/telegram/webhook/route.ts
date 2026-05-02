@@ -822,59 +822,6 @@ async function handleCallbackQuery(
     Object.assign(data, checkData)
     return
   }
-      }
-
-      // Try to send QR code image if available
-      if (qrisResult.qrisCode || qrisResult.qrisUrl) {
-        try {
-          await fetch(`${TELEGRAM_API}${botToken}/sendPhoto`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: chatId,
-              photo: qrisResult.qrisCode || qrisResult.qrisUrl,
-              caption: qrisText,
-              parse_mode: 'Markdown',
-              reply_markup: keyboard,
-            }),
-          })
-        } catch (photoError) {
-          console.log('[v0] Failed to send photo, sending text instead:', photoError)
-          await sendMessage(botToken, chatId, qrisText, { replyMarkup: keyboard })
-        }
-      } else {
-        await sendMessage(botToken, chatId, qrisText, { replyMarkup: keyboard })
-      }
-
-      return
-    } catch (error) {
-      console.error('[v0] QRIS Payment Error:', error)
-      await answerCallbackQuery(botToken, callbackQuery.id, 'Gagal memproses pembayaran QRIS', true)
-      return
-    }
-  }
-  
-  // Handle check payment status
-  if (data.startsWith('check_payment_')) {
-    const orderId = data.replace('check_payment_', '')
-    
-    try {
-      const orders = await getAllOrders()
-      const order = orders?.find(o => o.id === orderId)
-      
-      if (!order) {
-        await answerCallbackQuery(botToken, callbackQuery.id, 'Order tidak ditemukan', true)
-        return
-      }
-
-      await answerCallbackQuery(botToken, callbackQuery.id, 'Status: ' + (order.paymentStatus || 'pending'))
-      return
-    } catch (error) {
-      console.error('[v0] Check Payment Error:', error)
-      await answerCallbackQuery(botToken, callbackQuery.id, 'Gagal check status', true)
-      return
-    }
-  }
   
   // Handle balance check
   if (data === 'balance') {
