@@ -30,11 +30,11 @@ export async function GET(request: NextRequest) {
 // POST/PUT - Create or update QRIS settings
 export async function POST(request: NextRequest) {
   try {
-    const { type, username, apiKey, token, userId } = await request.json()
+    const { type, username, apiKey, token, merchantId, codeQr, userId } = await request.json()
 
-    if (!type || !username || !apiKey || !token) {
+    if (!type || !username || !apiKey || !token || !merchantId || !codeQr) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        { error: 'Missing required fields: type, username, apiKey, token, merchantId, codeQr' },
         { status: 400 }
       )
     }
@@ -59,6 +59,8 @@ export async function POST(request: NextRequest) {
         username,
         apiKey,
         token,
+        merchantId,
+        codeQr,
         isActive: true,
       },
       type === 'user' ? userId : undefined

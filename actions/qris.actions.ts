@@ -51,7 +51,9 @@ export async function saveQrisSettings(
   username: string,
   apiKey: string,
   token: string,
-  userId?: string
+  userId?: string,
+  merchantId?: string,
+  codeQr?: string
 ) {
   try {
     const response = await fetch('/api/settings/qris', {
@@ -65,6 +67,8 @@ export async function saveQrisSettings(
         apiKey,
         token,
         userId,
+        merchantId: merchantId || '',
+        codeQr: codeQr || '',
       }),
     })
 

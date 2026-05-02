@@ -52,7 +52,11 @@ export async function createOrkutQrisPayment(
     let username = ''
     let apiKey = ORKUT_ADMIN_API_KEY
     let authToken = ORKUT_ADMIN_AUTH_TOKEN
+<<<<<<< HEAD
     let merchant_Id = ORKUT_ADMIN_MERCHANT_ID
+=======
+    let merchantId = ORKUT_ADMIN_MERCHANT_ID
+>>>>>>> 4eaf8f9 (update file)
     let codeQr = ORKUT_ADMIN_CODE_QR
 
     if (qrisType === 'user' && userId) {
@@ -62,7 +66,11 @@ export async function createOrkutQrisPayment(
         apiKey = qrisSettings.apiKey
         authToken = qrisSettings.token
         // Extract merchant ID from settings if available
+<<<<<<< HEAD
         merchant_Id = qrisSettings.username // atau bisa dari field lain
+=======
+        merchantId = qrisSettings.username // atau bisa dari field lain
+>>>>>>> 4eaf8f9 (update file)
         codeQr = qrisSettings.apiKey // Asumsi code QR disimpan di field apiKey untuk user
       }
     } else {
@@ -91,7 +99,11 @@ export async function createOrkutQrisPayment(
       codeqr: codeQr,
       username,
       authToken,
+<<<<<<< HEAD
       merchant_Id: merchant_Id,
+=======
+      merchantid: merchantId,
+>>>>>>> 4eaf8f9 (update file)
     })
 
     const response = await fetch(`${ORKUT_API_BASE}/orderkuota?${params.toString()}`, {
@@ -161,7 +173,11 @@ export async function checkOrkutPaymentStatus(
     let username = ORKUT_ADMIN_USERNAME
     let apiKey = ORKUT_ADMIN_API_KEY
     let authToken = ORKUT_ADMIN_AUTH_TOKEN
+<<<<<<< HEAD
     let merchant_Id = ORKUT_ADMIN_MERCHANT_ID
+=======
+    let merchantId = ORKUT_ADMIN_MERCHANT_ID
+>>>>>>> 4eaf8f9 (update file)
 
     if (qrisType === 'user' && userId) {
       const qrisSettings = await getQrisSettings('user', userId)
@@ -186,7 +202,11 @@ export async function checkOrkutPaymentStatus(
       apikey: apiKey,
       username,
       authToken,
+<<<<<<< HEAD
       merchant_Id: merchant_Id,
+=======
+      merchantid: merchantId,
+>>>>>>> 4eaf8f9 (update file)
       transactionId,
     })
 

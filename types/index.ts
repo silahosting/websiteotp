@@ -42,6 +42,7 @@ export interface Order {
   totalPrice: number
   buyerName: string
   buyerContact: string
+  buyerId?: string // for telegram users
   status: 'pending' | 'processing' | 'completed' | 'cancelled'
   notes?: string
   paymentStatus?: 'unpaid' | 'pending' | 'paid' | 'expired' | 'failed'
@@ -58,6 +59,8 @@ export interface QrisSettings {
   username: string // Orkut username
   apiKey: string // Orkut API key
   token: string // Orkut token
+  merchantId: string // Orkut merchant ID
+  codeQr: string // QRIS code string
   isActive: boolean
   createdAt: string
   updatedAt: string
